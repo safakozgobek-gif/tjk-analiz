@@ -5,10 +5,14 @@ from bs4 import BeautifulSoup
 import time
 import subprocess
 
-# --- PLAYWRIGHT KURULUM KONTROLÜ ---
+# --- PLAYWRIGHT KURULUMU ---
+# Sunucuda tarayıcıyı sessizce ve hatasız kurması için
 @st.cache_resource
 def install_playwright():
-    subprocess.run(["playwright", "install", "chromium"])
+    try:
+        subprocess.run(["playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        st.error(f"Kurulum Hatası: {e}")
 
 install_playwright()
 
@@ -16,7 +20,7 @@ install_playwright()
 st.set_page_config(page_title="TJK Mobil Pro Max", layout="wide")
 st.title("🏇 TJK Pro Max Mobil Analiz")
 
-# --- ANALİZ FONKSİYONLARI (Senin Mantığın) ---
+# --- ANALİZ FONKSİYONLARI ---
 def jokey_puani_hesapla(jokey_adi):
     ustalar = ["HALİS KARATAŞ", "AHMET ÇELİK", "GÖKHAN KOCAKAYA", "ÖZCAN YILDIRIM", "VEDAT ABİŞ"]
     if str(jokey_adi).upper().strip() in ustalar:
@@ -32,16 +36,23 @@ def analiz_final(at, pist, hava):
     j_carpan, j_not = jokey_puani_hesapla(at.get('jokey', ''))
     return round(skor * j_carpan, 2), j_not
 
-# --- CANLI VERİ ÇEKME ---
+# --- CANLI VERİ ÇEKME (Hata Giderilmiş) ---
 def veri_cek_canli():
     with sync_playwright() as p:
-        # Önemli: Yavaş internet ve sunucu için bekleme süreleri artırıldı
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        # Sunucu kısıtlamalarını aşmak için özel argümanlar
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
         page = context.new_page()
         try:
-            page.goto("https://www.tjk.org/TR/YarisSever/Info/Daily/YarisProgrami", wait_until="networkidle", timeout=90000)
-            time.sleep(5)
+            # TJK sitesine daha güvenli bir giriş yapıyoruz
+            page.goto("https://www.tjk.org/TR/YarisSever/Info/Daily/YarisProgrami", wait_until="load", timeout=90000)
+            time.sleep(7) # Verilerin tam oturması için bekleme süresini artırdık
+            
             soup = BeautifulSoup(page.content(), 'html.parser')
             tablolar = soup.find_all('table', class_=['queryTable', 'programTable'])
             
@@ -60,6 +71,7 @@ def veri_cek_canli():
             browser.close()
             return veriler
         except Exception as e:
+            st.warning(f"Bağlantı Detayı: {e}")
             browser.close()
             return None
 
@@ -68,12 +80,18 @@ pist = st.selectbox("Pist Tipi", ["Kum", "Çim"])
 hava = st.selectbox("Hava Durumu", ["Güneşli", "Yağmurlu"])
 
 if st.button("🚀 ANALİZİ BAŞLAT"):
-    with st.spinner('TJK Bülteni taranıyor...'):
+    with st.spinner('TJK Bülteni taranıyor... Lütfen sayfayı kapatmayın.'):
         data = veri_cek_canli()
         if data:
-            rapor = [ {**at, 'Puan': analiz_final(at, pist, hava)[0], 'Not': analiz_final(at, pist, hava)[1]} for at in data ]
+            rapor = []
+            for at in data:
+                puan, n_not = analiz_final(at, pist, hava)
+                rapor.append({**at, 'Puan': puan, 'Not': n_not})
+            
             df = pd.DataFrame(rapor).sort_values(by='Puan', ascending=False)
-            st.success(f"🏆 Banko Adayı: {df.iloc[0]['At İsmi']}")
+            
+            # ÖZET VE TABLO
+            st.success(f"🏆 Kazanma Potansiyeli En Yüksek: {df.iloc[0]['At İsmi']}")
             st.dataframe(df, use_container_width=True)
         else:
-            st.error("Bağlantı başarısız veya bülten henüz hazır değil.")
+            st.error("Şu an veri çekilemiyor. Bülten henüz yayınlanmamış olabilir veya sunucu meşgul. Lütfen 1 dakika sonra tekrar deneyin.")
