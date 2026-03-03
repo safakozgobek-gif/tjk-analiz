@@ -3,60 +3,59 @@ import pandas as pd
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 import time
-import subprocess
+import os
 
-# --- PLAYWRIGHT KURULUMU ---
-# Sunucuda tarayıcıyı sessizce ve hatasız kurması için
-@st.cache_resource
-def install_playwright():
-    try:
-        subprocess.run(["playwright", "install", "chromium"], check=True)
-    except Exception as e:
-        st.error(f"Kurulum Hatası: {e}")
-
-install_playwright()
+# --- OTOMATİK TARAYICI KURULUMU ---
+# Bu komut sunucuyu zorlayarak tarayıcıyı kurdurur
+if not os.path.exists("/home/appuser/.cache/ms-playwright"):
+    os.system("playwright install chromium")
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="TJK Mobil Pro Max", layout="wide")
-st.title("🏇 TJK Pro Max Mobil Analiz")
+st.set_page_config(page_title="TJK Otomatik Analiz", layout="wide")
+st.title("🏇 TJK Akıllı Analiz (Tam Otomatik)")
+st.info("Sistem pist tipini ve hava durumunu bültenden otomatik okur.")
 
-# --- ANALİZ FONKSİYONLARI ---
-def jokey_puani_hesapla(jokey_adi):
-    ustalar = ["HALİS KARATAŞ", "AHMET ÇELİK", "GÖKHAN KOCAKAYA", "ÖZCAN YILDIRIM", "VEDAT ABİŞ"]
-    if str(jokey_adi).upper().strip() in ustalar:
-        return 1.10, "Usta Jokey (+10%)"
-    return 1.0, "Normal"
-
-def analiz_final(at, pist, hava):
+# --- ANALİZ MANTIKLARI ---
+def analiz_et(at, pist_tipi):
     try:
         h_puan = int(at['handikap']) if str(at['handikap']).isdigit() else 0
         kilo = float(str(at['kilo']).replace(',', '.'))
     except: h_puan, kilo = 0, 60.0
-    skor = (h_puan * 2.5) - (kilo * 0.4)
-    j_carpan, j_not = jokey_puani_hesapla(at.get('jokey', ''))
-    return round(skor * j_carpan, 2), j_not
 
-# --- CANLI VERİ ÇEKME (Hata Giderilmiş) ---
-def veri_cek_canli():
+    skor = (h_puan * 2.5) - (kilo * 0.4)
+    
+    # Otomatik Pist Uzmanlığı
+    at_ismi = at['isim'].upper()
+    is_kum_ati = any(x in at_ismi for x in ["BABA", "OĞLU", "HAN", "DEMİR"])
+    
+    if (is_kum_ati and "KUM" in pist_tipi.upper()) or (not is_kum_ati and "ÇİM" in pist_tipi.upper()):
+        skor *= 1.20 # Pist uyumu bonusu
+        not_v = "Pist Uygun"
+    else:
+        not_v = "Pist Belirsiz"
+        
+    return round(skor, 2), not_v
+
+# --- CANLI VE OTOMATİK VERİ ÇEKME ---
+def veri_cek_otomatik():
     with sync_playwright() as p:
-        # Sunucu kısıtlamalarını aşmak için özel argümanlar
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-        )
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
-        page = context.new_page()
         try:
-            # TJK sitesine daha güvenli bir giriş yapıyoruz
-            page.goto("https://www.tjk.org/TR/YarisSever/Info/Daily/YarisProgrami", wait_until="load", timeout=90000)
-            time.sleep(7) # Verilerin tam oturması için bekleme süresini artırdık
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            page = browser.new_page()
+            # TJK Program sayfasına git
+            page.goto("https://www.tjk.org/TR/YarisSever/Info/Daily/YarisProgrami", wait_until="networkidle", timeout=90000)
+            time.sleep(5)
             
-            soup = BeautifulSoup(page.content(), 'html.parser')
+            content = page.content()
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            # Pist bilgisini sayfadan otomatik bulalım
+            # Genelde "Pist: Kum", "Pist: Çim" şeklinde bir yazı olur
+            pist_metni = soup.find(text=lambda t: "Pist:" in t) if soup.find(text=lambda t: "Pist:" in t) else "Kum (Tahmin)"
+            
             tablolar = soup.find_all('table', class_=['queryTable', 'programTable'])
-            
             veriler = []
+            
             if tablolar:
                 for tablo in tablolar:
                     for satir in tablo.find_all('tr')[1:]:
@@ -66,32 +65,35 @@ def veri_cek_canli():
                                 'isim': sutunlar[2].text.strip().split('(')[0].strip().upper(),
                                 'jokey': sutunlar[7].text.strip().upper(),
                                 'kilo': sutunlar[4].text.strip(),
-                                'handikap': sutunlar[9].text.strip()
+                                'handikap': sutunlar[9].text.strip(),
+                                'pist_bilgisi': str(pist_metni).strip()
                             })
             browser.close()
             return veriler
         except Exception as e:
-            st.warning(f"Bağlantı Detayı: {e}")
-            browser.close()
+            st.error(f"Hata detayı: {e}")
             return None
 
 # --- ARAYÜZ ---
-pist = st.selectbox("Pist Tipi", ["Kum", "Çim"])
-hava = st.selectbox("Hava Durumu", ["Güneşli", "Yağmurlu"])
-
-if st.button("🚀 ANALİZİ BAŞLAT"):
-    with st.spinner('TJK Bülteni taranıyor... Lütfen sayfayı kapatmayın.'):
-        data = veri_cek_canli()
+if st.button("🚀 GÜNLÜK BÜLTENİ TARA VE ANALİZ ET"):
+    with st.spinner('TJK Sistemine bağlanılıyor...'):
+        data = veri_cek_otomatik()
         if data:
+            pist_bilgisi = data[0]['pist_bilgisi']
+            st.write(f"🔍 **Tespit Edilen Pist:** {pist_bilgisi}")
+            
             rapor = []
             for at in data:
-                puan, n_not = analiz_final(at, pist, hava)
-                rapor.append({**at, 'Puan': puan, 'Not': n_not})
+                puan, durum = analiz_et(at, pist_bilgisi)
+                rapor.append({
+                    'At İsmi': at['isim'],
+                    'Jokey': at['jokey'],
+                    'Puan': puan,
+                    'Analiz': durum
+                })
             
             df = pd.DataFrame(rapor).sort_values(by='Puan', ascending=False)
-            
-            # ÖZET VE TABLO
-            st.success(f"🏆 Kazanma Potansiyeli En Yüksek: {df.iloc[0]['At İsmi']}")
+            st.success(f"🏆 Banko Adayı: {df.iloc[0]['At İsmi']}")
             st.dataframe(df, use_container_width=True)
         else:
-            st.error("Şu an veri çekilemiyor. Bülten henüz yayınlanmamış olabilir veya sunucu meşgul. Lütfen 1 dakika sonra tekrar deneyin.")
+            st.error("Veri çekilemedi. Lütfen birkaç dakika sonra tekrar deneyin.")
