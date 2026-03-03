@@ -4,6 +4,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
 from bs4 import BeautifulSoup
 import time
 
@@ -11,7 +12,7 @@ import time
 st.set_page_config(page_title="TJK Akıllı Analiz", layout="wide")
 st.title("🏇 TJK Akıllı Analiz (Otomatik)")
 
-# --- TARAYICI AYARI (Selenium) ---
+# --- TARAYICI AYARI (Bulut Sunucu İçin Özel) ---
 @st.cache_resource
 def get_driver():
     options = Options()
@@ -19,8 +20,15 @@ def get_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    
+    # Streamlit Cloud'da Chromium kullanması için zorluyoruz
+    try:
+        service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+        return webdriver.Chrome(service=service, options=options)
+    except:
+        # Eğer yukarıdaki başarısız olursa sistemdeki varsayılan yolu dene
+        options.binary_location = "/usr/bin/chromium-browser"
+        return webdriver.Chrome(options=options)
 
 # --- ANALİZ MANTIKLARI ---
 def analiz_et(at):
@@ -28,8 +36,6 @@ def analiz_et(at):
         h_puan = int(at['handikap']) if str(at['handikap']).isdigit() else 0
         kilo = float(str(at['kilo']).replace(',', '.'))
     except: h_puan, kilo = 0, 60.0
-    
-    # Kilo ve Handikap Dengesi
     skor = (h_puan * 2.5) - (kilo * 0.4)
     return round(skor, 2)
 
@@ -38,7 +44,7 @@ def veri_cek():
     driver = get_driver()
     try:
         driver.get("https://www.tjk.org/TR/YarisSever/Info/Daily/YarisProgrami")
-        time.sleep(5) # Sayfanın yüklenmesi için bekleme
+        time.sleep(6) # Sayfa içeriğinin dolması için ek süre
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
         tablolar = soup.find_all('table', class_=['queryTable', 'programTable'])
@@ -64,7 +70,7 @@ def veri_cek():
 
 # --- ARAYÜZ ---
 if st.button("🚀 GÜNLÜK BÜLTENİ TARA VE ANALİZ ET"):
-    with st.spinner('TJK Sistemine bağlanılıyor...'):
+    with st.spinner('TJK Sistemine bağlanılıyor... Lütfen bekleyin.'):
         data = veri_cek()
         if data:
             rapor = []
@@ -83,6 +89,6 @@ if st.button("🚀 GÜNLÜK BÜLTENİ TARA VE ANALİZ ET"):
                 st.success(f"🏆 Banko Adayı: {df.iloc[0]['At İsmi']}")
                 st.dataframe(df, use_container_width=True)
             else:
-                st.warning("Veri bulundu ancak işlenemedi.")
+                st.warning("Veri okundu ama tablo boş.")
         else:
-            st.error("Bülten verisi çekilemedi. Lütfen sayfayı yenileyip tekrar deneyin.")
+            st.error("Bülten verisi çekilemedi. Bağlantı zaman aşımına uğramış olabilir.")
