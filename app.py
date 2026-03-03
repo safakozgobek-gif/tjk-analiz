@@ -5,8 +5,7 @@ from bs4 import BeautifulSoup
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="TJK Mobil Analiz", layout="wide")
-st.title("🏇 TJK Akıllı Analiz (Hızlı Bağlantı)")
-st.info("Tarayıcısız doğrudan veri bağlantısı aktif.")
+st.title("🏇 TJK Akıllı Analiz")
 
 # --- ANALİZ MANTIKLARI ---
 def analiz_et(at):
@@ -17,7 +16,7 @@ def analiz_et(at):
     skor = (h_puan * 2.5) - (kilo * 0.4)
     return round(skor, 2)
 
-# --- VERİ ÇEKME (Direct Request) ---
+# --- VERİ ÇEKME ---
 def veri_cek_hizli():
     url = "https://www.tjk.org/TR/YarisSever/Info/Daily/YarisProgrami"
     headers = {
@@ -28,8 +27,11 @@ def veri_cek_hizli():
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             tablolar = soup.find_all('table', class_=['queryTable', 'programTable'])
-            veriler = []
             
+            veriler = []
+            if not tablolar:
+                return None
+
             for tablo in tablolar:
                 satirlar = tablo.find_all('tr')[1:]
                 for satir in satirlar:
@@ -42,17 +44,15 @@ def veri_cek_hizli():
                             'handikap': sutunlar[9].text.strip()
                         })
             return veriler
-        else:
-            st.error(f"TJK Sitesi yanıt vermiyor. Hata kodu: {response.status_code}")
-            return None
-    except Exception as e:
-        st.error(f"Bağlantı Hatası: {e}")
+        return None
+    except:
         return None
 
 # --- ARAYÜZ ---
 if st.button("🚀 ANALİZİ BAŞLAT"):
-    with st.spinner('Veriler TJK'dan alınıyor...'):
+    with st.spinner('TJK Bülteni taranıyor...'):
         data = veri_cek_hizli()
+        
         if data:
             rapor = []
             for at in data:
@@ -61,15 +61,15 @@ if st.button("🚀 ANALİZİ BAŞLAT"):
                     'At İsmi': at['isim'],
                     'Jokey': at['jokey'],
                     'Kilo': at['kilo'],
-                    'Hnd': at['handikap'],
                     'Puan': puan
                 })
             
             df = pd.DataFrame(rapor).sort_values(by='Puan', ascending=False)
+            
             if not df.empty:
-                st.success(f"🏆 Banko Adayı: {df.iloc[0]['At İsmi']}")
+                st.success(f"🏆 Potansiyel Banko: {df.iloc[0]['At İsmi']}")
                 st.dataframe(df, use_container_width=True)
             else:
-                st.warning("Bugün için bülten verisi bulunamadı.")
+                st.warning("Veriler işlenemedi. Lütfen daha sonra tekrar deneyin.")
         else:
-            st.error("Şu an TJK sistemine bağlanılamıyor. Lütfen internetini kontrol et veya az sonra tekrar dene.")
+            st.error("⚠️ Şu an bültene ulaşılamıyor. (TJK sitesi güncelleniyor olabilir. Lütfen sabah 09:00'dan sonra tekrar deneyin.)")
