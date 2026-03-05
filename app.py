@@ -2,29 +2,25 @@ import streamlit as st
 from PIL import Image
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="TJK İstihbarat & Analiz", layout="wide", page_icon="🏇")
-st.title("🏇 TJK Görsel tabanlı Veri Tamamlama")
+st.set_page_config(page_title="TJK Çoklu Analiz", layout="wide", page_icon="🏇")
+st.title("🏇 TJK Çoklu Görsel Analiz Sistemi")
 
 st.info("""
-**Süreç:** 1. TJK bülten görselini yükleyin.
-2. Görseldeki at isimleri ve temel bilgiler algılanır.
-3. **Eksik Kalanlar:** Jokeyin bugünkü formu, atın pist uzmanlığı ve güncel ganyanlar internetten taranır.
+**Talimatlar:** 1. TJK bültenini, son yarış performanslarını veya ganyan tablolarını (birden fazla olabilir) yükleyin.
+2. Tüm görseller yüklendiğinde, aynı görselleri Gemini'ye gönderip analizi başlatın.
 """)
 
-uploaded_file = st.file_uploader("Bülten Görselini (TJK) Yükle", type=["jpg", "png", "jpeg"])
+# accept_multiple_files=True parametresi ile artık birden fazla dosya seçebilirsin
+uploaded_files = st.file_uploader("Bülten Görsellerini Yükleyin (Maks 5 Adet)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Analiz Edilecek TJK Bülteni", use_container_width=True)
+if uploaded_files:
+    st.write(f"✅ {len(uploaded_files)} adet görsel yüklendi.")
     
-    st.warning("⚠️ Veriler Hazır! Şimdi bu görseli Gemini'ye göndererek 'Eksikleri tamamla, Banko ve Sürprizi söyle' deyin.")
+    # Görselleri yan yana göster
+    cols = st.columns(len(uploaded_files))
+    for i, uploaded_file in enumerate(uploaded_files):
+        image = Image.open(uploaded_file)
+        cols[i].image(image, caption=f"Görsel {i+1}", use_container_width=True)
     
-    # Görseldeki verilerin işlendiğini simüle eden bir panel
-    st.subheader("🔍 Tespit Edilen Parametreler")
-    col1, col2, col3 = st.columns(3)
-    col1.write("✅ At İsimleri Okundu")
-    col2.write("✅ Kilolar/Handikaplar Alındı")
-    col3.write("⏳ İnternet Verileri (Jokey/Ganyan) Bekleniyor...")
-
     st.divider()
-    st.success("Analiz için Gemini hazır. Görseli sohbete yükleyin.")
+    st.success("🚀 Veriler hazır! Şimdi bu görselleri toplu halde Gemini'ye göndererek 'Eksikleri tamamla, Banko ve Sürprizi söyle' deyin.")
